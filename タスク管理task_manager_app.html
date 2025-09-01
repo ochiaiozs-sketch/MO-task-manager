@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<!--
+  シンプルなブラウザ用タスク管理アプリ
+
+  特徴:
+    - 年間目標と月間目標の管理（追加・編集・削除）
+    - カレンダー風の月間表示と日別タスク管理
+    - タスクの優先度（A: 最重要, B: 重要, C: 優先度低）
+    - 完了/先送り/削除の進捗管理
+    - 完了したタスクには打ち消し線を表示
+    - データはブラウザのローカルストレージに保存されます
+    - JSONファイルのインポート・エクスポート機能で、複数端末で共有が可能
+
+  使い方:
+    ファイルをブラウザで開くだけで利用可能です。ページを再読み込みしてもデータは残ります。
+    iPhoneやMacで共有する場合は、フッターの「データを保存」ボタンでJSONをダウンロードし、
+    別の端末で「データを読み込み」から同じJSONを読み込んでください。
+-->
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>タスク管理アプリ</title>
+  <style>
+    /* 全体のリセットと基本スタイル */
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f6f7f8;
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    header {
+      background-color: #fff;
+      padding: 1rem;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.6rem;
+      font-weight: 600;
+    }
+    /* 年間目標表示 */
+    #yearly-goals-container {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      background-color: #fafafa;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+    }
+    #yearly-goals-container h2 {
+      margin: 0 0 0.5rem 0;
+      font-size: 1.1rem;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 0.25rem;
+    }
+    #yearly-goals-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    #yearly-goals-list li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.25rem 0;
+      border-bottom: 1px solid #eee;
+    }
+    #yearly-goals-list li:last-child {
+      border-bottom: none;
+    }
+    .goal-actions button {
+      margin-left: 0.25rem;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: #555;
+    }
+    .goal-actions button:hover {
+      color: #000;
+    }
+    /* メインエリア */
+    main {
+      flex: 1;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+    }
+    /* 月ナビゲーション */
+    #month-nav {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+    #month-nav button {
+      background-color: #1976d2;
+      color: #fff;
+      border: none;
+      padding: 0.5rem 1rem;
+      font-size: 0.9rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    #month-nav button:hover {
+      background-color: #115293;
+    }
+    #month-label {
+      margin: 0 1rem;
+      font-size: 1.2rem;
+      font-weight: 600;
+    }
+    /* 月間目標 */
+    #monthly-goals-container {
+      background-color: #fff;
+      border: 1px solid #e0e0e0;
+      padding: 0.75rem;
+      border-radius: 4px;
+      margin-bottom: 1rem;
+    }
+    #monthly-goals-container h2 {
+      margin-top: 0;
+      font-size: 1.1rem;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 0.25rem;
+    }
+    #monthly-goals-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    #monthly-goals-list li {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.25rem 0;
+      border-bottom: 1px solid #eee;
+    }
+    #monthly-goals-list li:last-child {
+      border-bottom: none;
+    }
+    /* カレンダーグリッド */
+    #calendar {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 1px;
+      background-color: #ddd;
+      flex-grow: 1;
+      border: 1px solid #ddd;
+    }
+    .day {
+      background-color: #fff;
+      min-height: 100px;
+      display: flex;
+      flex-direction: column;
+      padding: 0.25rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+    .day-number {
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+    .day-tasks {
+      flex-grow: 1;
+      overflow-y: auto;
+    }
+    .task-item {
+      margin-bottom: 0.1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .task-item .task-text {
+      flex-grow: 1;
+      margin-right: 0.25rem;
+    }
+    .task-item.completed .task-text {
+      text-decoration: line-through;
+      color: #999;
+    }
+    .task-item .actions button {
+      margin-left: 0.1rem;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 0.8rem;
+      color: #666;
+    }
+    .task-item .actions button:hover {
+      color: #000;
+    }
+    .priority-A {
+      border-left: 4px solid #d32f2f;
+      padding-left: 0.25rem;
+    }
+    .priority-B {
+      /* 優先度B（重要）の鮮やかな青 */
+      border-left: 4px solid #007bff;
+      padding-left: 0.25rem;
+    }
+    .priority-C {
+      border-left: 4px solid #388e3c;
+      padding-left: 0.25rem;
+    }
+    /* ダイアログ共通スタイル */
+    .modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal.active {
+      display: flex;
+    }
+    .modal-content {
+      background-color: #fff;
+      padding: 1rem;
+      border-radius: 6px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      width: 90%;
+      max-width: 400px;
+    }
+    .modal-content h3 {
+      margin-top: 0;
+      margin-bottom: 0.75rem;
+    }
+    .modal-content label {
+      display: block;
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+    }
+    .modal-content input[type="text"],
+    .modal-content textarea,
+    .modal-content select {
+      width: 100%;
+      padding: 0.5rem;
+      margin-top: 0.25rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+    .modal-content textarea {
+      resize: vertical;
+    }
+    .modal-content .modal-buttons {
+      margin-top: 1rem;
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+    }
+    .btn-primary {
+      background-color: #1976d2;
+      color: #fff;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .btn-primary:hover {
+      background-color: #115293;
+    }
+    .btn-secondary {
+      background-color: #e0e0e0;
+      color: #333;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .btn-secondary:hover {
+      background-color: #c7c7c7;
+    }
+    footer {
+      padding: 1rem;
+      background-color: #fff;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    footer button {
+      background-color: #1976d2;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      font-size: 0.9rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    footer button:hover {
+      background-color: #115293;
+    }
+    footer input[type="file"] {
+      display: none;
+    }
+    footer label[for="importFile"] {
+      background-color: #e0e0e0;
+      color: #333;
+      border: none;
+      padding: 0.5rem 1rem;
+      font-size: 0.9rem;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    footer label[for="importFile"]:hover {
+      background-color: #c7c7c7;
+    }
+    /* 週ヘッダー */
+    .weekday-header {
+      background-color: #f0f0f0;
+      border-bottom: 1px solid #ddd;
+      padding: 0.25rem;
+      text-align: center;
+      font-weight: bold;
+    }
+    /* スクロールバーのカスタマイズ (webkit) */
+    .day-tasks::-webkit-scrollbar {
+      width: 6px;
+    }
+    .day-tasks::-webkit-scrollbar-thumb {
+      background-color: rgba(0,0,0,0.2);
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>タスク管理</h1>
+    <div id="yearly-goals-container">
+      <h2>年間目標</h2>
+      <ul id="yearly-goals-list"></ul>
+      <button class="btn-primary" id="add-yearly-goal">年間目標を追加</button>
+    </div>
+  </header>
+  <main>
+    <div id="month-nav">
+      <button id="prev-month">&#x2039; 前月</button>
+      <div id="month-label"></div>
+      <button id="next-month">次月 &#x203A;</button>
+    </div>
+    <div id="monthly-goals-container">
+      <h2>月間目標</h2>
+      <ul id="monthly-goals-list"></ul>
+      <button class="btn-primary" id="add-monthly-goal">月間目標を追加</button>
+    </div>
+    <div id="calendar"></div>
+  </main>
+  <footer>
+    <button id="export-data">データを保存</button>
+    <label for="importFile">データを読み込み</label>
+    <input type="file" id="importFile" accept="application/json">
+  </footer>
+  
+  <!-- 年間目標の追加・編集モーダル -->
+  <div id="yearly-goal-modal" class="modal">
+    <div class="modal-content">
+      <h3 id="yearly-goal-modal-title">年間目標を追加</h3>
+      <label for="yearly-goal-text">目標内容:</label>
+      <textarea id="yearly-goal-text" rows="3"></textarea>
+      <div class="modal-buttons">
+        <button class="btn-secondary" id="cancel-yearly-goal">キャンセル</button>
+        <button class="btn-primary" id="save-yearly-goal">保存</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 月間目標の追加・編集モーダル -->
+  <div id="monthly-goal-modal" class="modal">
+    <div class="modal-content">
+      <h3 id="monthly-goal-modal-title">月間目標を追加</h3>
+      <label for="monthly-goal-text">目標内容:</label>
+      <textarea id="monthly-goal-text" rows="3"></textarea>
+      <div class="modal-buttons">
+        <button class="btn-secondary" id="cancel-monthly-goal">キャンセル</button>
+        <button class="btn-primary" id="save-monthly-goal">保存</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 日々のタスクモーダル -->
+  <div id="daily-tasks-modal" class="modal">
+    <div class="modal-content">
+      <h3 id="daily-modal-title">タスク</h3>
+      <div id="daily-tasks-container"></div>
+      <h4>タスクを追加</h4>
+      <label for="task-text">内容:</label>
+      <textarea id="task-text" rows="2"></textarea>
+      <label for="task-priority">優先度:</label>
+      <select id="task-priority">
+        <!-- A: 緊急かつ重要, B: 重要, C: 優先度低 -->
+        <option value="A">A: 緊急かつ重要</option>
+        <option value="B">B: 重要</option>
+        <option value="C">C: 優先度低</option>
+      </select>
+      <div class="modal-buttons">
+        <button class="btn-secondary" id="cancel-task">閉じる</button>
+        <button class="btn-primary" id="add-task">追加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- タスク詳細モーダル（タスク内容クリックで開くメモ） -->
+  <div id="task-detail-modal" class="modal">
+    <div class="modal-content">
+      <h3>タスク詳細</h3>
+      <label for="detail-task-title">タスク名:</label>
+      <input id="detail-task-title" type="text" />
+      <label for="detail-task-description">詳細メモ:</label>
+      <textarea id="detail-task-description" rows="4"></textarea>
+      <div class="modal-buttons">
+        <button class="btn-secondary" id="cancel-task-detail">閉じる</button>
+        <button class="btn-primary" id="save-task-detail">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // データ構造の初期化
+    const defaultData = {
+      yearlyGoals: [], // [{id, text}]
+      monthlyGoals: {}, // {'YYYY-MM': [{id, text}]}
+      tasks: {} // {'YYYY-MM-DD': [{id, text, priority, status}]}
+    };
+    let appData = {};
+    let currentDate = new Date();
+    let editingYearlyGoalId = null;
+    let editingMonthlyGoalId = null;
+    let currentMonthlyKey = '';
+    let dailyViewDate = '';
+    let currentDetailTask = null; // 詳細編集中のタスク参照
+    
+    // ユーティリティ関数
+    const pad = (num) => num.toString().padStart(2, '0');
+    const formatDate = (date) => {
+      const y = date.getFullYear();
+      const m = pad(date.getMonth() + 1);
+      const d = pad(date.getDate());
+      return `${y}-${m}-${d}`;
+    };
+    const formatMonthKey = (date) => {
+      const y = date.getFullYear();
+      const m = pad(date.getMonth() + 1);
+      return `${y}-${m}`;
+    };
+    
+    // ローカルストレージからデータ読み込み
+    function loadData() {
+      const saved = localStorage.getItem('taskAppData');
+      if (saved) {
+        try {
+          appData = JSON.parse(saved);
+        } catch(e) {
+          console.error('データ読み込みエラー', e);
+          appData = JSON.parse(JSON.stringify(defaultData));
+        }
+      } else {
+        appData = JSON.parse(JSON.stringify(defaultData));
+      }
+    }
+    // データをローカルストレージへ保存
+    function saveData() {
+      localStorage.setItem('taskAppData', JSON.stringify(appData));
+    }
+    
+    // 年間目標の表示
+    function renderYearlyGoals() {
+      const list = document.getElementById('yearly-goals-list');
+      list.innerHTML = '';
+      appData.yearlyGoals.forEach(goal => {
+        const li = document.createElement('li');
+        const span = document.createElement('span');
+        span.textContent = goal.text;
+        li.appendChild(span);
+        const actions = document.createElement('div');
+        actions.className = 'goal-actions';
+        const editBtn = document.createElement('button');
+        editBtn.textContent = '編集';
+        editBtn.onclick = () => openYearlyGoalModal(goal.id);
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = '削除';
+        deleteBtn.onclick = () => deleteYearlyGoal(goal.id);
+        actions.appendChild(editBtn);
+        actions.appendChild(deleteBtn);
+        li.appendChild(actions);
+        list.appendChild(li);
+      });
+    }
+    // 年間目標モーダルを開く（追加/編集）
+    function openYearlyGoalModal(id = null) {
+      editingYearlyGoalId = id;
+      const modal = document.getElementById('yearly-goal-modal');
+      const title = document.getElementById('yearly-goal-modal-title');
+      const textarea = document.getElementById('yearly-goal-text');
+      if (id) {
+        // 編集
+        const goal = appData.yearlyGoals.find(g => g.id === id);
+        if (!goal) return;
+        title.textContent = '年間目標を編集';
+        textarea.value = goal.text;
+      } else {
+        title.textContent = '年間目標を追加';
+        textarea.value = '';
+      }
+      modal.classList.add('active');
+    }
+    function closeYearlyGoalModal() {
+      document.getElementById('yearly-goal-modal').classList.remove('active');
+      editingYearlyGoalId = null;
+    }
+    function saveYearlyGoal() {
+      const text = document.getElementById('yearly-goal-text').value.trim();
+      if (!text) {
+        closeYearlyGoalModal();
+        return;
+      }
+      if (editingYearlyGoalId) {
+        // 更新
+        const goal = appData.yearlyGoals.find(g => g.id === editingYearlyGoalId);
+        if (goal) goal.text = text;
+      } else {
+        // 追加
+        const id = 'y' + Date.now();
+        appData.yearlyGoals.push({id, text});
+      }
+      saveData();
+      renderYearlyGoals();
+      closeYearlyGoalModal();
+    }
+    function deleteYearlyGoal(id) {
+      if (!confirm('削除しますか？')) return;
+      appData.yearlyGoals = appData.yearlyGoals.filter(g => g.id !== id);
+      saveData();
+      renderYearlyGoals();
+    }
+    
+    // 月間目標の表示
+    function renderMonthlyGoals() {
+      const monthKey = formatMonthKey(currentDate);
+      currentMonthlyKey = monthKey;
+      const list = document.getElementById('monthly-goals-list');
+      list.innerHTML = '';
+      const goals = appData.monthlyGoals[monthKey] || [];
+      goals.forEach(goal => {
+        const li = document.createElement('li');
+        const span = document.createElement('span');
+        span.textContent = goal.text;
+        li.appendChild(span);
+        const actions = document.createElement('div');
+        actions.className = 'goal-actions';
+        const editBtn = document.createElement('button');
+        editBtn.textContent = '編集';
+        editBtn.onclick = () => openMonthlyGoalModal(goal.id);
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = '削除';
+        deleteBtn.onclick = () => deleteMonthlyGoal(goal.id);
+        actions.appendChild(editBtn);
+        actions.appendChild(deleteBtn);
+        li.appendChild(actions);
+        list.appendChild(li);
+      });
+    }
+    // 月間目標モーダル
+    function openMonthlyGoalModal(id = null) {
+      editingMonthlyGoalId = id;
+      const modal = document.getElementById('monthly-goal-modal');
+      const title = document.getElementById('monthly-goal-modal-title');
+      const textarea = document.getElementById('monthly-goal-text');
+      const monthKey = currentMonthlyKey;
+      if (id) {
+        const goals = appData.monthlyGoals[monthKey] || [];
+        const goal = goals.find(g => g.id === id);
+        if (!goal) return;
+        title.textContent = '月間目標を編集';
+        textarea.value = goal.text;
+      } else {
+        title.textContent = '月間目標を追加';
+        textarea.value = '';
+      }
+      modal.classList.add('active');
+    }
+    function closeMonthlyGoalModal() {
+      document.getElementById('monthly-goal-modal').classList.remove('active');
+      editingMonthlyGoalId = null;
+    }
+    function saveMonthlyGoal() {
+      const text = document.getElementById('monthly-goal-text').value.trim();
+      const monthKey = currentMonthlyKey;
+      if (!appData.monthlyGoals[monthKey]) appData.monthlyGoals[monthKey] = [];
+      if (!text) {
+        closeMonthlyGoalModal();
+        return;
+      }
+      if (editingMonthlyGoalId) {
+        const goals = appData.monthlyGoals[monthKey];
+        const goal = goals.find(g => g.id === editingMonthlyGoalId);
+        if (goal) goal.text = text;
+      } else {
+        const id = 'm' + Date.now();
+        appData.monthlyGoals[monthKey].push({id, text});
+      }
+      saveData();
+      renderMonthlyGoals();
+      closeMonthlyGoalModal();
+    }
+    function deleteMonthlyGoal(id) {
+      if (!confirm('削除しますか？')) return;
+      const monthKey = currentMonthlyKey;
+      if (!appData.monthlyGoals[monthKey]) return;
+      appData.monthlyGoals[monthKey] = appData.monthlyGoals[monthKey].filter(g => g.id !== id);
+      saveData();
+      renderMonthlyGoals();
+    }
+    
+    // カレンダー生成
+    function renderCalendar() {
+      const calendarEl = document.getElementById('calendar');
+      calendarEl.innerHTML = '';
+      // 月ラベル
+      const monthLabelEl = document.getElementById('month-label');
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      monthLabelEl.textContent = `${year}年 ${month + 1}月`;
+      // 週ヘッダー
+      const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+      weekdays.forEach(day => {
+        const header = document.createElement('div');
+        header.textContent = day;
+        header.className = 'weekday-header';
+        calendarEl.appendChild(header);
+      });
+      // 月の最初の日と日数
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      const startWeekDay = firstDay.getDay();
+      const daysInMonth = lastDay.getDate();
+      // 前の月の日付を空白に埋める
+      for (let i = 0; i < startWeekDay; i++) {
+        const emptyCell = document.createElement('div');
+        emptyCell.className = 'day empty';
+        calendarEl.appendChild(emptyCell);
+      }
+      // 当月の日付
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateObj = new Date(year, month, d);
+        const dateStr = formatDate(dateObj);
+        const dayEl = document.createElement('div');
+        dayEl.className = 'day';
+        dayEl.onclick = () => openDailyModal(dateObj);
+        const numberEl = document.createElement('div');
+        numberEl.className = 'day-number';
+        numberEl.textContent = d;
+        dayEl.appendChild(numberEl);
+        const tasksContainer = document.createElement('div');
+        tasksContainer.className = 'day-tasks';
+        const tasks = appData.tasks[dateStr] || [];
+        tasks.forEach(task => {
+          const tDiv = document.createElement('div');
+          tDiv.className = `task-item priority-${task.priority}`;
+          if (task.status === 'completed') tDiv.classList.add('completed');
+          const textSpan = document.createElement('span');
+          textSpan.className = 'task-text';
+          textSpan.textContent = task.text;
+          tDiv.appendChild(textSpan);
+          dayEl.appendChild(tasksContainer);
+          tasksContainer.appendChild(tDiv);
+        });
+        calendarEl.appendChild(dayEl);
+      }
+      // 次の月への空白を埋める
+      const totalCells = startWeekDay + daysInMonth;
+      const remaining = 7 - (totalCells % 7);
+      if (remaining < 7) {
+        for (let i = 0; i < remaining; i++) {
+          const emptyCell = document.createElement('div');
+          emptyCell.className = 'day empty';
+          calendarEl.appendChild(emptyCell);
+        }
+      }
+    }
+    
+    // 日別タスクモーダル
+    function openDailyModal(date) {
+      dailyViewDate = formatDate(date);
+      const modal = document.getElementById('daily-tasks-modal');
+      const title = document.getElementById('daily-modal-title');
+      title.textContent = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日のタスク`;
+      renderDailyTasks();
+      modal.classList.add('active');
+    }
+    function closeDailyModal() {
+      document.getElementById('daily-tasks-modal').classList.remove('active');
+      dailyViewDate = '';
+      document.getElementById('task-text').value = '';
+    }
+    function renderDailyTasks() {
+      const container = document.getElementById('daily-tasks-container');
+      container.innerHTML = '';
+      const tasks = appData.tasks[dailyViewDate] || [];
+      tasks.forEach(task => {
+        const div = document.createElement('div');
+        div.className = `task-item priority-${task.priority}`;
+        if (task.status === 'completed') div.classList.add('completed');
+        const textSpan = document.createElement('span');
+        textSpan.className = 'task-text';
+        textSpan.textContent = task.text;
+        // タスク名クリックで詳細メモを編集
+        textSpan.style.cursor = 'pointer';
+        textSpan.title = 'クリックしてメモを編集';
+        textSpan.onclick = () => openTaskDetailModal(task);
+        div.appendChild(textSpan);
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        // 完了ボタン
+        const completeBtn = document.createElement('button');
+        completeBtn.title = '完了';
+        completeBtn.textContent = '✔';
+        completeBtn.onclick = () => {
+          task.status = task.status === 'completed' ? 'pending' : 'completed';
+          saveData();
+          renderDailyTasks();
+          renderCalendar();
+        };
+        actions.appendChild(completeBtn);
+        // 先送りボタン
+        const postponeBtn = document.createElement('button');
+        postponeBtn.title = '先送り';
+        postponeBtn.textContent = '→';
+        postponeBtn.onclick = () => {
+          postponeTask(task);
+        };
+        actions.appendChild(postponeBtn);
+        // 削除ボタン
+        const deleteBtn = document.createElement('button');
+        deleteBtn.title = '削除';
+        deleteBtn.textContent = '✖';
+        deleteBtn.onclick = () => {
+          deleteTask(task);
+        };
+        actions.appendChild(deleteBtn);
+        div.appendChild(actions);
+        container.appendChild(div);
+      });
+    }
+    function addTask() {
+      const text = document.getElementById('task-text').value.trim();
+      const priority = document.getElementById('task-priority').value;
+      if (!text) return;
+      if (!appData.tasks[dailyViewDate]) appData.tasks[dailyViewDate] = [];
+      appData.tasks[dailyViewDate].push({
+        id: 't' + Date.now(),
+        text,
+        priority,
+        status: 'pending',
+        description: '' // 詳細メモ初期値
+      });
+      document.getElementById('task-text').value = '';
+      saveData();
+      renderDailyTasks();
+      renderCalendar();
+    }
+    function postponeTask(task) {
+      // remove from current date and move to next day
+      const tasks = appData.tasks[dailyViewDate];
+      const index = tasks.indexOf(task);
+      if (index > -1) tasks.splice(index, 1);
+      const nextDate = new Date(dailyViewDate);
+      nextDate.setDate(nextDate.getDate() + 1);
+      const nextKey = formatDate(nextDate);
+      if (!appData.tasks[nextKey]) appData.tasks[nextKey] = [];
+      appData.tasks[nextKey].push(task);
+      // maintain pending status
+      task.status = 'pending';
+      saveData();
+      renderDailyTasks();
+      renderCalendar();
+    }
+    function deleteTask(task) {
+      const tasks = appData.tasks[dailyViewDate];
+      const index = tasks.indexOf(task);
+      if (index > -1) tasks.splice(index, 1);
+      saveData();
+      renderDailyTasks();
+      renderCalendar();
+    }
+
+    // タスクの詳細メモ編集モーダル
+    function openTaskDetailModal(task) {
+      currentDetailTask = task;
+      const modal = document.getElementById('task-detail-modal');
+      const titleInput = document.getElementById('detail-task-title');
+      const descTextarea = document.getElementById('detail-task-description');
+      titleInput.value = task.text;
+      descTextarea.value = task.description || '';
+      modal.classList.add('active');
+    }
+    function closeTaskDetailModal() {
+      const modal = document.getElementById('task-detail-modal');
+      modal.classList.remove('active');
+      currentDetailTask = null;
+    }
+    function saveTaskDetail() {
+      if (!currentDetailTask) return;
+      // 入力されたタイトルとメモを保存
+      const titleInput = document.getElementById('detail-task-title');
+      const descTextarea = document.getElementById('detail-task-description');
+      currentDetailTask.text = titleInput.value.trim() || currentDetailTask.text;
+      currentDetailTask.description = descTextarea.value.trim();
+      saveData();
+      // 更新を反映
+      renderDailyTasks();
+      renderCalendar();
+      closeTaskDetailModal();
+    }
+    
+    // 月を前後に移動
+    function changeMonth(offset) {
+      currentDate.setMonth(currentDate.getMonth() + offset);
+      renderMonthlyGoals();
+      renderCalendar();
+    }
+    
+    // データエクスポート（JSONとして保存）
+    function exportData() {
+      const dataStr = JSON.stringify(appData, null, 2);
+      const blob = new Blob([dataStr], {type: 'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const now = new Date();
+      const fileName = `task_data_${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}.json`;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    // データインポート
+    function importData(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const imported = JSON.parse(e.target.result);
+          // 構造が正しいか最低限チェック
+          if (typeof imported === 'object' && imported.yearlyGoals && imported.monthlyGoals && imported.tasks) {
+            appData = imported;
+            saveData();
+            renderYearlyGoals();
+            renderMonthlyGoals();
+            renderCalendar();
+            alert('データを読み込みました');
+          } else {
+            alert('ファイル形式が正しくありません');
+          }
+        } catch(err) {
+          alert('ファイルを読み込めませんでした');
+        }
+      };
+      reader.readAsText(file);
+    }
+    
+    // 初期化
+    function init() {
+      loadData();
+      renderYearlyGoals();
+      renderMonthlyGoals();
+      renderCalendar();
+      // イベントハンドラ登録
+      document.getElementById('add-yearly-goal').onclick = () => openYearlyGoalModal();
+      document.getElementById('cancel-yearly-goal').onclick = closeYearlyGoalModal;
+      document.getElementById('save-yearly-goal').onclick = saveYearlyGoal;
+      document.getElementById('add-monthly-goal').onclick = () => openMonthlyGoalModal();
+      document.getElementById('cancel-monthly-goal').onclick = closeMonthlyGoalModal;
+      document.getElementById('save-monthly-goal').onclick = saveMonthlyGoal;
+      document.getElementById('prev-month').onclick = () => changeMonth(-1);
+      document.getElementById('next-month').onclick = () => changeMonth(1);
+      document.getElementById('cancel-task').onclick = () => closeDailyModal();
+      document.getElementById('add-task').onclick = addTask;
+      document.getElementById('export-data').onclick = exportData;
+      document.getElementById('importFile').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) importData(file);
+        e.target.value = '';
+      });
+      // 年間モーダルの閉じる（背景クリック）
+      document.getElementById('yearly-goal-modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeYearlyGoalModal();
+      });
+      document.getElementById('monthly-goal-modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeMonthlyGoalModal();
+      });
+      document.getElementById('daily-tasks-modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeDailyModal();
+      });
+
+      // タスク詳細モーダルのイベントハンドラ
+      document.getElementById('cancel-task-detail').onclick = closeTaskDetailModal;
+      document.getElementById('save-task-detail').onclick = saveTaskDetail;
+      document.getElementById('task-detail-modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeTaskDetailModal();
+      });
+    }
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
